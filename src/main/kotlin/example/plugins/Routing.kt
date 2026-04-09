@@ -13,14 +13,14 @@ object UserTable : Table("usuarios") {
     val id = integer("id").autoIncrement()
     val correo = varchar("correo", 100)
     val password = varchar("password", 100)
-    val role = varchar("role", 20)
+    val role = integer(name = "rol_id")
     override val primaryKey = PrimaryKey(id)
 }
 
 fun Application.configureRouting() {
     // Conexión a la base de datos (MatchVoc)
     Database.connect(
-        url = "jdbc:mysql://localhost:3307/matchvoc",
+        url = "jdbc:mysql://localhost:3306/matchvoc",
         driver = "com.mysql.cj.jdbc.Driver",
         user = "root",
         password = ""

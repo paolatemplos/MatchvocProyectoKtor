@@ -1,0 +1,11 @@
+### Prueba servidor
+GET http://localhost:8080/
+
+### Prueba login
+POST http://localhost:8080/login
+Content-Type: application/json
+
+{
+  "correo": "admin@matchvoc.com",
+  "password": "admin123"
+}
