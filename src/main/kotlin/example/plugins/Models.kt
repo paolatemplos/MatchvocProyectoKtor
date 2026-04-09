@@ -13,3 +13,14 @@ data class LoginResponse(
     val success: Boolean,
     val message: String
 )
+@Serializable
+data class CarreraRecomendada(
+    val carrera: String,
+    val universidad: String
+)
+
+@Serializable
+data class DiagnosticoResponse(
+    val area: String,
+    val carreras_recomendadas: List<CarreraRecomendada>
+)
