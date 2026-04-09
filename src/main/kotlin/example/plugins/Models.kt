@@ -24,3 +24,9 @@ data class DiagnosticoResponse(
     val area: String,
     val carreras_recomendadas: List<CarreraRecomendada>
 )
+@Serializable
+data class PreguntaResponse(
+    val id: Int,
+    val texto: String,
+    val area_id: Int
+)

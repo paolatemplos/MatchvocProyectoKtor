@@ -123,7 +123,6 @@ fun Application.configureRouting() {
                             }
                         }
                     }
-
                     // Área con más puntos
                     val areaGanadora = puntajesPorArea.maxByOrNull { it.value }?.key
 
@@ -159,6 +158,25 @@ fun Application.configureRouting() {
                 }
 
                 call.respond(HttpStatusCode.OK, resultado as DiagnosticoResponse)
+            } catch (e: Exception) {
+                call.respond(HttpStatusCode.BadRequest, mapOf("error" to (e.message ?: "Error")))
+            }
+        }
+        get("/preguntas") {
+            try {
+                val preguntas = transaction {
+                    PreguntasTable
+                        .select { PreguntasTable.activa eq 1 }
+                        .orderBy(PreguntasTable.id)
+                        .map { row ->
+                            PreguntaResponse(
+                                id = row[PreguntasTable.id],
+                                texto = row[PreguntasTable.texto],
+                                area_id = row[PreguntasTable.area_id]
+                            )
+                        }
+                }
+                call.respond(HttpStatusCode.OK, preguntas)
             } catch (e: Exception) {
                 call.respond(HttpStatusCode.BadRequest, mapOf("error" to (e.message ?: "Error")))
             }
