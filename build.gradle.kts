@@ -18,6 +18,9 @@ kotlin {
 
 tasks {
     shadowJar {
+        archiveBaseName.set("app")
+        archiveClassifier.set("")
+        archiveVersion.set("")
         archiveFileName.set("app.jar")
         mergeServiceFiles()
     }
@@ -41,6 +44,7 @@ dependencies {
     testImplementation(libs.ktor.server.test.host)
     testImplementation(libs.kotlin.test.junit)
 }
+
 tasks.named("build") {
     finalizedBy(tasks.named("shadowJar"))
 }
