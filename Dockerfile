@@ -1,7 +1,7 @@
 FROM gradle:8.5-jdk21 AS build
 WORKDIR /app
 COPY . .
-RUN chmod +x gradlew && ./gradlew shadowJar --no-daemon -x test
+RUN chmod +x gradlew && ./gradlew shadowJar --no-daemon -x test && ls -la build/libs/
 
 FROM eclipse-temurin:21-jre
 WORKDIR /app
