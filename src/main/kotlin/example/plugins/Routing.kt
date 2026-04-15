@@ -704,91 +704,130 @@ fun Application.configureRouting() {
         // Endpoint para guardar cada respuesta una por una
         post("/test/save-progress") {
             try {
-                val progress = call.receive<SaveProgressRequest>()
+                // Recibimos el mapa como <String, String>
+                val progress = call.receive<Map<String, String>>()
+                println(">>> DATOS RECIBIDOS: $progress")
 
                 transaction {
-                    // Guardamos para el progreso del alumno (trazabilidad)
                     TestProgressTable.insert {
-                        it[idUsuario] = progress.idUsuario
-                        it[pregunta] = progress.pregunta
-                        it[sector] = progress.sector
-                        it[carrera] = progress.carrera
-                        it[respuesta] = progress.respuesta
-                    }
-
-                    // También guardamos en respuestas individuales para las gráficas del admin
-                    RespuestasIndividualesTable.insert {
-                        it[idUsuario] = progress.idUsuario
-                        it[pregunta] = progress.pregunta
-                        it[sector] = progress.sector
-                        it[carrera] = progress.carrera
-                        it[leIntereso] = progress.respuesta
+                        // Convertimos los textos de vuelta a lo que la BD necesita
+                        it[idUsuario] = progress["idUsuario"]?.toInt() ?: 0
+                        it[pregunta] = progress["pregunta"] ?: ""
+                        it[sector] = progress["sector"] ?: ""
+                        it[carrera] = progress["carrera"] ?: ""
+                        it[respuesta] = progress["respuesta"]?.toBoolean() ?: false
                     }
                 }
-                call.respond(HttpStatusCode.Created, "Progreso y respuesta guardados")
+                call.respond(HttpStatusCode.Created)
             } catch (e: Exception) {
-                call.respond(HttpStatusCode.InternalServerError, "Error: ${e.message}")
+                println("ERROR SERVIDOR: ${e.message}")
+                call.respond(HttpStatusCode.InternalServerError, e.message ?: "Error")
             }
         }
 
-        // Endpoint extra: Para que el alumno recupere su progreso si sale y entra
-        get("/test/get-progress/{userId}") {
+// 2. RECUPERAR PROGRESO (Para retomar el test y que no empiece de cero)
+        get("/test/get-detailed-progress/{userId}") {
             val userId = call.parameters["userId"]?.toIntOrNull() ?: return@get call.respond(HttpStatusCode.BadRequest)
 
             try {
-                val respuestasPrevias = dbQuery {
+                val progreso = transaction {
                     TestProgressTable.select { TestProgressTable.idUsuario eq userId }
-                        .map { it[TestProgressTable.pregunta] } // Solo traemos los textos de las preguntas ya hechas
-                }
-                call.respond(respuestasPrevias)
-            } catch (e: Exception) {
-                call.respond(HttpStatusCode.InternalServerError, "Error al obtener progreso")
-            }
-        }
-        // Ruta para obtener el diagnóstico final con universidades sugeridas
-        get("/estudiante/diagnostico/{userId}") {
-            val userId = call.parameters["userId"]?.toIntOrNull() ?: return@get call.respond(HttpStatusCode.BadRequest)
-
-            try {
-                val diagnosticoCompleto = transaction {
-                    // 1. Buscamos el resultado más reciente del alumno
-                    val resultado = ResultadosTable.select { ResultadosTable.idUsuario eq userId }
-                        .orderBy(ResultadosTable.fecha, SortOrder.DESC)
-                        .firstOrNull()
-
-                    if (resultado != null) {
-                        val sectorAlcanzado = resultado[ResultadosTable.sectorSugerido]
-
-                        // 2. BUSQUEDA MAGICA: Buscamos universidades que coincidan con ese sector
-                        val unisSugeridas = UniversidadesTable.select {
-                            UniversidadesTable.sectorRelacionado like "%$sectorAlcanzado%"
-                        }.map { row ->
-                            University(
-                                id = row[UniversidadesTable.id],
-                                nombre = row[UniversidadesTable.nombre],
-                                localidad = row[UniversidadesTable.localidad],
-                                sitio_web = row[UniversidadesTable.sitioWeb],
-                                oferta_educativa = row[UniversidadesTable.ofertaEducativa],
-                                sector_relacionado = row[UniversidadesTable.sectorRelacionado]
+                        .map {
+                            mapOf(
+                                "pregunta" to it[TestProgressTable.pregunta],
+                                "sector" to it[TestProgressTable.sector],
+                                "respuesta" to it[TestProgressTable.respuesta].toString() // Forzamos String
                             )
                         }
-
-                        // Retornamos todo junto
-                        mapOf(
-                            "resultado" to sectorAlcanzado,
-                            "carreras" to resultado[ResultadosTable.carrerasAfines],
-                            "universidades" to unisSugeridas
-                        )
-                    } else null
                 }
-
-                if (diagnosticoCompleto != null) {
-                    call.respond(diagnosticoCompleto)
-                } else {
-                    call.respond(HttpStatusCode.NotFound, "No se encontró un test finalizado")
-                }
+                println(">>> ENVIANDO PROGRESO A APP: $progreso")
+                call.respond(progreso)
             } catch (e: Exception) {
-                call.respond(HttpStatusCode.InternalServerError, "Error: ${e.message}")
+                println("ERROR AL ENVIAR PROGRESO: ${e.message}")
+                call.respond(HttpStatusCode.InternalServerError)
+            }
+        }
+
+// 3. DIAGNÓSTICO (Para la pantalla de la Estrella)
+        get("/estudiante/diagnostico/{userId}") {
+            val userId = call.parameters["userId"]?.toIntOrNull() ?: return@get call.respond(HttpStatusCode.BadRequest)
+            println("\n>>> [DEBUG START] Analizando diagnóstico para usuario: $userId")
+
+            try {
+                val respuestaFinal = transaction {
+                    // 1. Buscamos todas las respuestas del usuario
+                    val filas = TestProgressTable.select { TestProgressTable.idUsuario eq userId }.toList()
+                    println(">>> [DEBUG] Total de filas encontradas: ${filas.size}")
+
+                    if (filas.isEmpty()) {
+                        println(">>> [DEBUG] El usuario ID $userId no tiene respuestas en la base de datos.")
+                        null
+                    } else {
+                        val total = filas.size
+
+                        // 2. Filtramos solo las respuestas positivas (true) para determinar el ganador
+                        val respuestasPositivas = filas.filter { it[TestProgressTable.respuesta] }
+                        println(">>> [DEBUG] Cantidad de respuestas 'SÍ' (true): ${respuestasPositivas.size}")
+
+                        // 3. Obtenemos el sector ganador y aplicamos limpieza de texto inmediata
+                        val ganadorRaw = respuestasPositivas
+                            .groupBy { it[TestProgressTable.sector] }
+                            .maxByOrNull { it.value.size }?.key ?: "Sin Sector"
+
+                        val ganadorLimpio = ganadorRaw.trim()
+                        println(">>> [DEBUG] SECTOR GANADOR DETECTADO: '$ganadorLimpio'")
+
+                        // 4. Determinamos el estado (Temporalmente >= 1 para pruebas de visualización)
+                        val estadoCalculado = if (total >= 1) "finalizado" else "en_progreso"
+
+                        // 5. BUSQUEDA DE UNIVERSIDADES (MODO INTELIGENTE)
+                        // Usamos 'like' y '%' para que coincida aunque el sector sea una lista o tenga nombres largos
+                        val unisRecomendadas = UniversidadesTable
+                            .select {
+                                (UniversidadesTable.sectorRelacionado.lowerCase() like "%${ganadorLimpio.lowercase()}%")
+                            }
+                            .map {
+                                University(
+                                    id = it[UniversidadesTable.id],
+                                    nombre = it[UniversidadesTable.nombre],
+                                    localidad = it[UniversidadesTable.localidad],
+                                    sitio_web = it[UniversidadesTable.sitioWeb],
+                                    oferta_educativa = it[UniversidadesTable.ofertaEducativa],
+                                    sector_relacionado = it[UniversidadesTable.sectorRelacionado]
+                                )
+                            }
+
+                        println(">>> [DEBUG] Universidades encontradas para '$ganadorLimpio': ${unisRecomendadas.size}")
+
+                        // 6. Construimos el objeto final DiagnosisResponse
+                        DiagnosisResponse(
+                            estado = estadoCalculado,
+                            sectorPrincipal = ganadorLimpio,
+                            totalContestadas = total.toString(),
+                            respuestas = filas.map {
+                                RespuestaHistorial(
+                                    pregunta = it[TestProgressTable.pregunta],
+                                    respuesta = it[TestProgressTable.respuesta].toString(),
+                                    sector = it[TestProgressTable.sector]
+                                )
+                            },
+                            universidades = unisRecomendadas
+                        )
+                    }
+                }
+
+                if (respuestaFinal != null) {
+                    println(">>> [DEBUG SUCCESS] Enviando JSON a la App con ${respuestaFinal.universidades.size} universidades.")
+                    call.respond(respuestaFinal)
+                } else {
+                    println(">>> [DEBUG EMPTY] No se encontraron datos para enviar.")
+                    call.respond(HttpStatusCode.NotFound, mapOf("error" to "Sin datos"))
+                }
+
+            } catch (e: Exception) {
+                println(">>> [DEBUG CRITICAL ERROR]: ${e.message}")
+                e.printStackTrace()
+                call.respond(HttpStatusCode.InternalServerError, e.message ?: "Error interno del servidor")
             }
         }
     }

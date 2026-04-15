@@ -49,7 +49,7 @@ data class Tarjeta(
 )
 @Serializable
 data class University(
-    val id: Int, // Debe llamarse exactamente 'id'
+    val id: Int,
     val nombre: String,
     val localidad: String,
     val sitio_web: String,
@@ -107,6 +107,30 @@ data class RespuestaDetallada(
     val carrera: String,
     val leIntereso: Boolean
 )
-
+/**
+ * Este es el que usa el TestViewModel para recalcular los puntos
+ * cuando el alumno vuelve a entrar al test.
+ */
+@Serializable
+data class TestProgressItem(
+    val pregunta: String,
+    val sector: String,
+    val respuesta: Boolean
+)
+@Serializable
+data class DiagnosisResponse(
+    val estado: String,
+    val sectorPrincipal: String,
+    val totalContestadas: String,
+    val respuestas: List<RespuestaHistorial>,
+    // Agregamos la lista de universidades para que se incluya en el JSON
+    val universidades: List<University> = emptyList()
+)
+@Serializable
+data class RespuestaHistorial(
+    val pregunta: String,
+    val respuesta: String,
+    val sector: String
+)
 
 
